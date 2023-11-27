@@ -1,7 +1,8 @@
 #pragma once
 #include <concepts>
-#include <ranges>
 #include <vector>
+#include <ranges>
+#include <functional>
 
 namespace invoke_intseq_h_utils {
 	// Checking if type is a certain template.
@@ -25,9 +26,9 @@ namespace invoke_intseq_h_utils {
 		using type = T;
 	};
 
-	template <class Int, Int... vals>
-	struct replace<std::integer_sequence<Int, vals...>> {
-		using type = Int;
+	template <class Int, Int first, Int... vals>
+	struct replace<std::integer_sequence<Int, first, vals...>> {
+		using type = std::integral_constant<Int, first>;
 	};
 
 	// Replacing all occurences of std::integer_sequence.
@@ -50,10 +51,63 @@ namespace invoke_intseq_h_utils {
 	struct return_type {
 		using type = typename return_type_from_tuple<F, typename replace_all<Args...>::tuple>::type;
 	};
+	template <class F, class... Args>
+	using return_type_t = typename return_type<F, Args...>::type;
+
+	// Checking if return value is not void.
+	template <class F, class... Args>
+	concept not_void = not std::same_as<return_type_t<F, Args...>, void>;
+
+	struct EmptyResult {};
+
+	template <class F, class... Args>
+	struct RecursiveCaller {
+
+		constexpr void operator()(auto& result, F&& f, Args&&... args) {
+			if constexpr (not_void<F, Args...>) {
+				result.push_back(std::invoke(std::forward<F>(f)));
+			}
+		}
+	};
+
+	// Recursive caller for non-std::integer_sequence or no argument.
+	template <class F, class First, class... Args>
+	struct RecursiveCaller<F, First, Args...> {
+
+		constexpr void operator()(auto& result, F&& f, First&& first, Args&&... args) {
+			RecursiveCaller<decltype(std::bind_front(std::forward<F>(f), std::forward<First>(first))), Args...> r_caller;
+			r_caller(result, std::bind_front(std::forward<F>(f), std::forward<First>(first)), std::forward<Args>(args)...);
+		}
+	};
+
+	// Recursive caller for non-empty std::integer_sequence argument.
+	template <class F, class Int, Int first_val, Int... vals, class... Args>
+	struct RecursiveCaller<F, std::integer_sequence<Int, first_val, vals...>, Args...> {
+
+		constexpr void operator()(auto& result, F&& f, std::integer_sequence<Int, first_val, vals...>&& first, Args&&... args) {
+			// First, call recursively for first_val.
+			RecursiveCaller<decltype(std::bind_front(std::forward<F>(f), std::integral_constant<Int, first_val>())), Args...> r_caller;
+			r_caller(result, std::bind_front(std::forward<F>(f), std::integral_constant<Int, first_val>()), std::forward<Args>(args)...);
+			// Then call recursively for vals...
+			RecursiveCaller<F, std::integer_sequence<Int, vals...>, Args...> r_caller_seq;
+			// ---------- TODO [QUESTION]: Is instantiating a new std::integer_sequence correct? ---------- //
+			r_caller_seq(result, std::forward<F>(f), std::integer_sequence<Int, vals...>(), std::forward<Args>(args)...);
+		}
+	};
+
+	// Recursive caller for empty std::integer_sequence argument.
+	template <class F, class Int, class... Args>
+	struct RecursiveCaller<F, std::integer_sequence<Int>, Args...> {
+
+		constexpr void operator()(auto& result, F&& f, std::integer_sequence<Int>&& first, Args&&... args) {
+			// Do nothing.
+		}
+	};
 
 	// Caller with no std::integer_sequence in Args...
 	template <class F, class... Args>
 	struct Caller {
+
 		constexpr decltype(auto) operator()(F&& f, Args&&... args) {
 			return std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
 		}
@@ -63,17 +117,24 @@ namespace invoke_intseq_h_utils {
 	template <class F, class... Args>
 	requires contains_intseq<Args...>
 	struct Caller<F, Args...> {
+
 		constexpr decltype(auto) operator()(F&& f, Args&&... args) {
-			std::vector<return_type<F, Args...>> result;
+			// If the function returns something other than void,
+			// calculate and store the result.
+			constexpr auto result = []() constexpr -> auto {
+				if constexpr (not_void<F, Args...>) {
+					return std::vector<return_type_t<F, Args...>>();
+				} else {
+					return EmptyResult{};
+				}
+			}();
+			RecursiveCaller<F, Args...> r_caller;
+			r_caller(result, std::forward<F>(f), std::forward<Args>(args)...);
 
-			return result;
+			if constexpr (not_void<F, Args...>) {
+				return result;
+			}
 		}
-
-		// TODO:
-		// - recursive calls to different Callers?
-		// - handling std::integer_sequence
-		// - handling non-std::integer_sequence
-		constexpr decltype(auto) recursive(F&& f, )
 	};
 }
 
