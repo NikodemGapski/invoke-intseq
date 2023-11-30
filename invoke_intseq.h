@@ -108,14 +108,14 @@ namespace invoke_intseq_h_utils {
 		}
 	}
 
-	// Recursive caller for no argument.
-	template <class F, class... Args>
+	// Recursive caller for no argument (cur_arg_idx = sizeof...(Args)).
+	template <class F, bool not_void, size_t cur_arg_idx, class... Args>
 	struct RecursiveCaller {
 
-		constexpr decltype(auto) operator()(auto& result, size_t& idx, F&& f) {
-			if constexpr (not_void<F>) {
-				if constexpr (return_type<F>::is_lref) {
-					auto ref = std::reference_wrapper(std::forward<decltype(f())>(std::invoke(std::forward<F>(f))));
+		constexpr decltype(auto) operator()(auto& result, size_t& idx, F&& f, Args&&... args) {
+			if constexpr (not_void) {
+				if constexpr (return_type<F, Args...>::is_lref) {
+					auto ref = std::reference_wrapper(std::forward<return_type_t<F, Args...>>(std::invoke(std::forward<F>(f), std::forward<Args>(args)...)));
 					if constexpr (std::same_as<decltype(result), EmptyResult&>) {
 						// This is a sample call to get a default value.
 						return ref;
@@ -126,60 +126,51 @@ namespace invoke_intseq_h_utils {
 					}
 					++idx;
 				} else {
-					result[idx++] = std::invoke(std::forward<F>(f));
+					result[idx++] = std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
 				}
 			} else {
-				std::invoke(std::forward<F>(f));
+				std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
 			}
 		}
 	};
 
 	// Recursive caller for non-std::integer_sequence.
-	template <class F, class First, class... Args>
-	struct RecursiveCaller<F, First, Args...> {
+	template <class F, bool not_void, size_t cur_arg_idx, class First, class... Args>
+	requires (cur_arg_idx < 1 + sizeof...(Args))
+	struct RecursiveCaller<F, not_void, cur_arg_idx, First, Args...> {
 
 		constexpr decltype(auto) operator()(auto& result, size_t& idx, F&& f, First&& first, Args&&... args) {
-			if constexpr (std::is_lvalue_reference_v<First>) {
-				auto ref = std::ref(first);
-				auto&& bind = std::bind_front(std::forward<F>(f), ref);
-
-				RecursiveCaller<decltype(bind), Args...> r_caller;
-				return r_caller(result, idx, std::forward<decltype(bind)>(bind), std::forward<Args>(args)...);
-			} else {
-				auto&& bind = std::bind_front(std::forward<F>(f), std::forward<First>(first));
-
-				RecursiveCaller<decltype(bind), Args...> r_caller;
-				return r_caller(result, idx, std::forward<decltype(bind)>(bind), std::forward<Args>(args)...);
-			}
+			RecursiveCaller<F, not_void, cur_arg_idx + 1, Args..., First> r_caller;
+			return r_caller(result, idx, std::forward<F>(f), std::forward<Args>(args)..., std::forward<First>(first));
 		}
 	};
 
 	// Recursive caller for non-empty std::integer_sequence argument.
-	template <class F, class Int, Int first_val, Int... vals, class... Args>
-	struct RecursiveCaller<F, std::integer_sequence<Int, first_val, vals...>, Args...> {
+	template <class F, bool not_void, size_t cur_arg_idx, class Int, Int first_val, Int... vals, class... Args>
+	requires (cur_arg_idx < 1 + sizeof...(Args))
+	struct RecursiveCaller<F, not_void, cur_arg_idx, std::integer_sequence<Int, first_val, vals...>, Args...> {
 		using this_seq = std::integer_sequence<Int, first_val, vals...>;
+		using this_constant = std::integral_constant<Int, first_val>;
 
 		constexpr decltype(auto) operator()(auto& result, size_t& idx, F&& f, this_seq&& first, Args&&... args) {
 			// First, call recursively for first_val.
-			auto&& bind = std::bind_front(std::forward<F>(f), std::integral_constant<Int, first_val>());
-
-			RecursiveCaller<decltype(bind), Args...> r_caller;
-			if constexpr (not_void<F, this_seq, Args...> && std::same_as<decltype(result), EmptyResult&>) {
+			RecursiveCaller<F, not_void, cur_arg_idx + 1, Args..., this_constant> r_caller;
+			if constexpr (not_void && std::same_as<decltype(result), EmptyResult&>) {
 				// We have found a default value.
-				return r_caller(result, idx, std::forward<decltype(bind)>(bind), std::forward<Args>(args)...);
+				return r_caller(result, idx, std::forward<F>(f), std::forward<Args>(args)..., this_constant());
 			} else {
-				r_caller(result, idx, std::forward<decltype(bind)>(bind), std::forward<Args>(args)...);
+				r_caller(result, idx, std::forward<F>(f), std::forward<Args>(args)..., this_constant());
 			}
+
 			// Then call recursively for vals...
-			RecursiveCaller<F, std::integer_sequence<Int, vals...>, Args...> r_caller_seq;
-			// ---------- TODO [QUESTION]: Is instantiating a new std::integer_sequence correct? ---------- //
+			RecursiveCaller<F, not_void, cur_arg_idx, std::integer_sequence<Int, vals...>, Args...> r_caller_seq;
 			r_caller_seq(result, idx, std::forward<F>(f), std::integer_sequence<Int, vals...>(), std::forward<Args>(args)...);
 		}
 	};
 
 	// Recursive caller for empty std::integer_sequence argument.
-	template <class F, class Int, class... Args>
-	struct RecursiveCaller<F, std::integer_sequence<Int>, Args...> {
+	template <class F, bool not_void, size_t cur_arg_idx, class Int, class... Args>
+	struct RecursiveCaller<F, not_void, cur_arg_idx, std::integer_sequence<Int>, Args...> {
 
 		constexpr void operator()(auto& result, size_t& idx, F&& f, std::integer_sequence<Int>&& first, Args&&... args) {
 			// Do nothing.
@@ -204,7 +195,7 @@ namespace invoke_intseq_h_utils {
 			// If the function returns something other than void,
 			// calculate and store the result.
 			size_t idx = 0;
-			RecursiveCaller<F, Args...> r_caller;
+			RecursiveCaller<F, not_void<F, Args...>, 0, Args...> r_caller;
 			auto result = [&]() constexpr -> auto {
 				if constexpr (not_void<F, Args...>) {
 					if constexpr (return_type<F, Args...>::is_lref && result_count<F, Args...>::value > 0) {
