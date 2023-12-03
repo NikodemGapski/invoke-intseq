@@ -152,7 +152,7 @@ namespace invoke_intseq_h_utils {
 		using this_seq = std::integer_sequence<Int, first_val, vals...>;
 		using this_constant = std::integral_constant<Int, first_val>;
 
-		constexpr decltype(auto) operator()(auto& result, size_t& idx, F&& f, this_seq&& first, Args&&... args) {
+		constexpr decltype(auto) operator()(auto& result, size_t& idx, F&& f, [[maybe_unused]] this_seq&& first, Args&&... args) {
 			// First, call recursively for first_val.
 			RecursiveCaller<F, not_void, cur_arg_idx + 1, Args..., this_constant> r_caller;
 			if constexpr (not_void && std::same_as<decltype(result), EmptyResult&>) {
@@ -172,7 +172,8 @@ namespace invoke_intseq_h_utils {
 	template <class F, bool not_void, size_t cur_arg_idx, class Int, class... Args>
 	struct RecursiveCaller<F, not_void, cur_arg_idx, std::integer_sequence<Int>, Args...> {
 
-		constexpr void operator()(auto& result, size_t& idx, F&& f, std::integer_sequence<Int>&& first, Args&&... args) {
+		constexpr void operator()([[maybe_unused]] auto& result, [[maybe_unused]] size_t& idx, [[maybe_unused]] F&& f,
+								  [[maybe_unused]] std::integer_sequence<Int>&& first, [[maybe_unused]] Args&&... args) {
 			// Do nothing.
 		}
 	};
