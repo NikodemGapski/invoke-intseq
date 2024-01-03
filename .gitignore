@@ -1,5 +1,6 @@
-*.cc
-sandbox
 *.txt
-*.out
+sandbox.cc
+sandbox
+invoke_intseq_exmpl
+test*
 .vscode/
