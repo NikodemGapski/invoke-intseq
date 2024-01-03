@@ -14,10 +14,10 @@ template result_type invoke_intseq(F&& f, Args&&... args);
 
 2. If there is at least one such argument, the function `f` should be invoked for all possible combinations of elements encoded in the `std::integer_sequence`'s. Formally, let `args...` be a sequence of arguments `a_1, a_2, ..., a_n` and let `a_i` be the first argument of type `std::integer_sequence<T, j_1, j_2, ..., j_m>`. Then `invoke_intseq(f, a_1, ..., a_n)` is defined as a series of recursive calls:
 ```c++
-invoke_intseq(f, a_1, ..., a_{i - 1}, std::integral_constant<T, j_1>, a_{i + 1}, ..., a_n),
-invoke_intseq(f, a_1, ..., a_{i - 1}, std::integral_constant<T, j_2>, a_{i + 1}, ..., a_n),
+invoke_intseq(f, a_1, ..., a_{i - 1}, std::integral_constant<T, j_1>, a_{i + 1}, ..., a_n);
+invoke_intseq(f, a_1, ..., a_{i - 1}, std::integral_constant<T, j_2>, a_{i + 1}, ..., a_n);
 ...
-invoke_intseq(f, a_1, ..., a_{i - 1}, std::integral_constant<T, j_m>, a_{i + 1}, ..., a_n).
+invoke_intseq(f, a_1, ..., a_{i - 1}, std::integral_constant<T, j_m>, a_{i + 1}, ..., a_n);
 ```
 
 The return type of the main `invoke_intseq` call is
